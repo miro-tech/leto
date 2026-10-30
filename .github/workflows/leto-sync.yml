@@ -1,0 +1,102 @@
+name: Leto Gist to GitFlic
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leto-gist-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Download leto.txt from Gist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl -fLsS --retry 3 \
+            "https://gist.githubusercontent.com/miro-tech/84998430eb3115e6fb2004ccdf7b1899/raw/leto.txt" \
+            -o leto.txt
+
+          test -s leto.txt
+
+          if grep -qiE '<!doctype html|<html([[:space:]>])' leto.txt; then
+            echo "ERROR: Source returned HTML instead of leto.txt"
+            exit 1
+          fi
+
+          echo "Downloaded $(wc -c < leto.txt) bytes"
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "Leto Sync"
+          git config --global user.email "leto-sync@users.noreply.github.com"
+
+      - name: Clone GitFlic repository
+        env:
+          GITFLIC_TOKEN: ${{ secrets.GITFLIC_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GITFLIC_TOKEN:-}" ]]; then
+            echo "ERROR: GITFLIC_TOKEN secret is missing"
+            exit 1
+          fi
+
+          ASKPASS="$RUNNER_TEMP/gitflic-askpass.sh"
+
+          cat > "$ASKPASS" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *sername*) printf '%s\n' 'oauth2' ;;
+            *assword*) printf '%s\n' "$GITFLIC_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+
+          chmod 700 "$ASKPASS"
+
+          export GIT_ASKPASS="$ASKPASS"
+          export GIT_TERMINAL_PROMPT=0
+
+          git clone \
+            "https://gitflic.ru/project/mirspectech/leto.git" \
+            gitflic-repo
+
+      - name: Update and push leto.txt
+        working-directory: gitflic-repo
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BRANCH="$(git branch --show-current)"
+
+          if [[ -z "$BRANCH" ]]; then
+            echo "ERROR: Could not determine GitFlic default branch"
+            exit 1
+          fi
+
+          cp "$GITHUB_WORKSPACE/leto.txt" ./leto.txt
+
+          git add -- leto.txt
+
+          if git diff --cached --quiet; then
+            echo "No changes; skipping commit."
+            exit 0
+          fi
+
+          git commit -m "Sync leto.txt from GitHub Gist"
+
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+          echo "Successfully updated leto.txt on GitFlic."
