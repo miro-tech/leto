@@ -41,7 +41,7 @@ jobs:
           git config --global user.name "Leto Sync"
           git config --global user.email "leto-sync@users.noreply.github.com"
 
-      - name: Clone GitFlic repository
+      - name: Prepare GitFlic authentication
         env:
           GITFLIC_TOKEN: ${{ secrets.GITFLIC_TOKEN }}
         shell: bash
@@ -66,8 +66,17 @@ jobs:
 
           chmod 700 "$ASKPASS"
 
-          export GIT_ASKPASS="$ASKPASS"
-          export GIT_TERMINAL_PROMPT=0
+          {
+            echo "GIT_ASKPASS=$ASKPASS"
+            echo "GIT_TERMINAL_PROMPT=0"
+          } >> "$GITHUB_ENV"
+
+      - name: Clone GitFlic repository
+        env:
+          GITFLIC_TOKEN: ${{ secrets.GITFLIC_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
 
           git clone \
             "https://gitflic.ru/project/mirspectech/leto.git" \
