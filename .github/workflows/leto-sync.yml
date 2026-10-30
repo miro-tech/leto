@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Download leto.txt from Gist
+      - name: Download Gist
         shell: bash
         run: |
           set -euo pipefail
@@ -30,7 +30,7 @@ jobs:
           test -s leto.txt
 
           if grep -qiE '<!doctype html|<html([[:space:]>])' leto.txt; then
-            echo "ERROR: Source returned HTML"
+            echo "ERROR: Invalid source file"
             exit 1
           fi
 
@@ -41,7 +41,7 @@ jobs:
           git config --global user.name "Leto Sync"
           git config --global user.email "leto-sync@users.noreply.github.com"
 
-      - name: Clone GitFlic repository
+      - name: Clone GitFlic
         run: |
           set -euo pipefail
 
@@ -49,48 +49,49 @@ jobs:
             "https://gitflic.ru/project/mirspectech/leto.git" \
             gitflic-repo
 
-      - name: Update and push leto.txt
+      - name: Commit and Push
         working-directory: gitflic-repo
         env:
+          GITFLIC_USERNAME: ${{ secrets.GITFLIC_USERNAME }}
           GITFLIC_TOKEN: ${{ secrets.GITFLIC_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
 
-          if [[ -z "${GITFLIC_TOKEN:-}" ]]; then
-            echo "ERROR: GITFLIC_TOKEN secret is missing"
+          if [[ -z "$GITFLIC_USERNAME" || -z "$GITFLIC_TOKEN" ]]; then
+            echo "ERROR: Missing GitFlic credentials"
             exit 1
           fi
 
           BRANCH="$(git branch --show-current)"
 
-          if [[ -z "$BRANCH" ]]; then
-            echo "ERROR: Could not determine default branch"
-            exit 1
-          fi
-
           cp "$GITHUB_WORKSPACE/leto.txt" ./leto.txt
 
-          git add -- leto.txt
+          git add leto.txt
 
           if git diff --cached --quiet; then
-            echo "No changes; skipping commit."
+            echo "No changes. Skipping."
             exit 0
           fi
 
           git commit -m "Sync leto.txt from GitHub Gist"
 
-          # GitFlic HTTPS authentication:
-          # username = oauth2
-          # password = API token
+          ASKPASS="$RUNNER_TEMP/gitflic-askpass.sh"
 
-          git remote set-url origin \
-            "https://oauth2:${GITFLIC_TOKEN}@gitflic.ru/project/mirspectech/leto.git"
+          cat > "$ASKPASS" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *sername*) printf '%s\n' "$GITFLIC_USERNAME" ;;
+            *assword*) printf '%s\n' "$GITFLIC_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+
+          chmod 700 "$ASKPASS"
+
+          export GIT_ASKPASS="$ASKPASS"
+          export GIT_TERMINAL_PROMPT=0
 
           git push origin "HEAD:refs/heads/$BRANCH"
 
-          # Remove credentials from the local remote configuration.
-          git remote set-url origin \
-            "https://gitflic.ru/project/mirspectech/leto.git"
-
-          echo "Successfully updated leto.txt on GitFlic."
+          echo "Successfully synchronized leto.txt"
