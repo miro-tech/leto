@@ -30,7 +30,7 @@ jobs:
           test -s leto.txt
 
           if grep -qiE '<!doctype html|<html([[:space:]>])' leto.txt; then
-            echo "ERROR: Source returned HTML instead of leto.txt"
+            echo "ERROR: Source returned HTML"
             exit 1
           fi
 
@@ -66,10 +66,8 @@ jobs:
 
           chmod 700 "$ASKPASS"
 
-          {
-            echo "GIT_ASKPASS=$ASKPASS"
-            echo "GIT_TERMINAL_PROMPT=0"
-          } >> "$GITHUB_ENV"
+          echo "GIT_ASKPASS=$ASKPASS" >> "$GITHUB_ENV"
+          echo "GIT_TERMINAL_PROMPT=0" >> "$GITHUB_ENV"
 
       - name: Clone GitFlic repository
         env:
@@ -84,6 +82,8 @@ jobs:
 
       - name: Update and push leto.txt
         working-directory: gitflic-repo
+        env:
+          GITFLIC_TOKEN: ${{ secrets.GITFLIC_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -91,7 +91,7 @@ jobs:
           BRANCH="$(git branch --show-current)"
 
           if [[ -z "$BRANCH" ]]; then
-            echo "ERROR: Could not determine GitFlic default branch"
+            echo "ERROR: Could not determine default branch"
             exit 1
           fi
 
